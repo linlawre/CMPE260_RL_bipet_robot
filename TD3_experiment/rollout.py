@@ -6,7 +6,7 @@ from biped_env import BipedalStandBulletEnv
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "models_td3_stand", "td3_stand_final.zip")
+MODEL_PATH = os.path.join(BASE_DIR, "models_td3_stand", "td3_stand_final")
 
 
 def main():

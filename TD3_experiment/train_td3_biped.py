@@ -8,9 +8,9 @@ from stable_baselines3.common.env_checker import check_env
 
 from biped_env import BipedalStandBulletEnv
 
-
-LOG_DIR = "logs_td3_stand"
-MODEL_DIR = "models_td3_stand"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = os.path.join(BASE_DIR, "logs_td3_stand")
+MODEL_DIR = os.path.join(BASE_DIR, "models_td3_stand")
 
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     )
 
     model.learn(
-        total_timesteps=500_000,
+        total_timesteps=1_000_000,
         callback=eval_callback,
         log_interval=10,
         progress_bar=True,
