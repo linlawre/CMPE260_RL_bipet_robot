@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="d9c70472-c99a-4cea-ba12-987deeec41bf" name="Changes" comment="trained on td3 with modified reward function for walking&#10;recorded video of the humanoid simulation&#10;saved the final result of the training model&#10;screenshot on the charts for data monitor">
+      <change afterPath="$PROJECT_DIR$/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/Reinforcement Learning Project.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/libraries/best_model.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/libraries/best_walking_model.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+    <option name="ROOT_SYNC" value="SYNC" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "xbai7"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/linlawre/CMPE260_RL_bipet_robot",
+    "accountId": "3b019e61-6917-4377-8bd8-6ade569eb7a7"
+  }
+}]]></component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 7
+}]]></component>
+  <component name="ProjectId" id="3C3z1uwlR947RHrCuOPl3WRXfhM" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "git-widget-placeholder": "main",
+    "last_opened_file_path": "/Users/xinghebai/Desktop/Reinforcement Learning/Reinforcement Learning Project",
+    "settings.editor.selected.configurable": "org.jetbrains.plugins.github.ui.GithubSettingsConfigurable"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="d9c70472-c99a-4cea-ba12-987deeec41bf" name="Changes" comment="" />
+      <created>1775628829658</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1775628829658</updated>
+    </task>
+    <task id="LOCAL-00001" summary="trained on td3 with modified reward function for walking&#10;recorded video of the humanoid simulation&#10;saved the final result of the training model&#10;screenshot on the charts for data monitor">
+      <option name="closed" value="true" />
+      <created>1775630079736</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1775630079736</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
+    <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="trained on td3 with modified reward function for walking&#10;recorded video of the humanoid simulation&#10;saved the final result of the training model&#10;screenshot on the charts for data monitor" />
+    <option name="LAST_COMMIT_MESSAGE" value="trained on td3 with modified reward function for walking&#10;recorded video of the humanoid simulation&#10;saved the final result of the training model&#10;screenshot on the charts for data monitor" />
+  </component>
+</project>

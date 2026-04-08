@@ -1,0 +1,16 @@
+<changelist name="trained_on_td3_with_modified_reward_function_for_walking_recorded_video_of_the_humanoid_si" date="1775629636738" recycled="false">
+  <option name="PATH" value="$PROJECT_DIR$/.idea/shelf/trained_on_td3_with_modified_reward_function_for_walking_recorded_video_of_the_humanoid_si/shelved.patch" />
+  <option name="DESCRIPTION" value="trained on td3 with modified reward function for walking recorded video of the humanoid simulation saved the final result of the training model screenshot on the charts for data monitor" />
+  <binary>
+    <option name="AFTER_PATH" value="models_td3_walk/best_walking_model.zip" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/trained_on_td3_with_modified_reward_function_for_walking_recorded_video_of_the_humanoid_si/best_walking_model.zip" />
+  </binary>
+  <binary>
+    <option name="AFTER_PATH" value="models_td3_walk/Screenshot 2026-04-07 at 10.33.13 PM.png" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/trained_on_td3_with_modified_reward_function_for_walking_recorded_video_of_the_humanoid_si/Screenshot 2026-04-07 at 10.33.13 PM.png" />
+  </binary>
+  <binary>
+    <option name="AFTER_PATH" value="models_td3_walk/td3 walking.mov" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/trained_on_td3_with_modified_reward_function_for_walking_recorded_video_of_the_humanoid_si/td3 walking.mov" />
+  </binary>
+</changelist>

@@ -1,0 +1,444 @@
+Index: models_td3_walk/train_td3_walking.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/models_td3_walk/train_td3_walking.py b/models_td3_walk/train_td3_walking.py
+new file mode 100644
+--- /dev/null	(date 1775624054432)
++++ b/models_td3_walk/train_td3_walking.py	(date 1775624054432)
+@@ -0,0 +1,53 @@
++import numpy as np
++from stable_baselines3 import TD3
++from stable_baselines3.common.env_util import make_vec_env
++from stable_baselines3.common.callbacks import BaseCallback, EvalCallback, CallbackList
++from biped_env import BipedalStandBulletEnv
++
++class CurriculumCallback(BaseCallback):
++    def __init__(self, total_timesteps, verbose=0):
++        super().__init__(verbose)
++        self.total_timesteps = total_timesteps
++
++    def _on_step(self) -> bool:
++        # Linearly increase alpha from 0.0 to 1.0 over the course of training
++        current_alpha = self.num_timesteps / self.total_timesteps
++        self.training_env.env_method("set_alpha", current_alpha)
++        return True
++
++if __name__ == "__main__":
++    print("Initializing environments...")
++    # Training environment
++    env = make_vec_env(lambda: BipedalStandBulletEnv(render=False), n_envs=1)
++    
++    # Clean evaluation environment (needed for the EvalCallback)
++    eval_env = make_vec_env(lambda: BipedalStandBulletEnv(render=False), n_envs=1)
++    # Force the eval environment to always test the full walking task (alpha = 1.0)
++    eval_env.env_method("set_alpha", 1.0)
++
++    print("Loading pre-trained standing model...")
++    model = TD3.load("best_model.zip", env=env, tensorboard_log="./td3_walking_tensorboard/")
++
++    total_steps = 1_000_000 
++    
++    # 1. Setup Curriculum Callback
++    curriculum_cb = CurriculumCallback(total_timesteps=total_steps)
++    
++    # 2. Setup Auto-Save (Eval) Callback
++    eval_cb = EvalCallback(
++        eval_env,
++        best_model_save_path="./", # Saves best_model.zip in your current folder
++        eval_freq=10_000,          # Tests the robot every 10,000 steps
++        deterministic=True,
++        render=False
++    )
++    
++    # 3. Combine them into a list
++    all_callbacks = CallbackList([curriculum_cb, eval_cb])
++
++    print("Starting curriculum training for forward locomotion...")
++    # Pass the combined list to the learn function
++    model.learn(total_timesteps=total_steps, callback=all_callbacks)
++
++    print("Training complete! Saving final model...")
++    model.save("final_walking_model")
+\ No newline at end of file
+Index: models_td3_walk/biped_env.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/models_td3_walk/biped_env.py b/models_td3_walk/biped_env.py
+new file mode 100644
+--- /dev/null	(date 1775625460390)
++++ b/models_td3_walk/biped_env.py	(date 1775625460390)
+@@ -0,0 +1,320 @@
++import time
++import numpy as np
++import gymnasium as gym
++from gymnasium import spaces
++import pybullet as p
++import pybullet_data
++
++
++class BipedalStandBulletEnv(gym.Env):
++    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 240}
++
++    def __init__(
++        self,
++        render=False,
++        time_step=1.0 / 240.0,
++        frame_skip=4,
++        max_episode_steps=1000,
++    ):
++        super().__init__()
++
++        self.render_mode = "human" if render else None
++        self.time_step = time_step
++        self.frame_skip = frame_skip
++        self.max_episode_steps = max_episode_steps
++
++        self.client = p.connect(p.GUI if render else p.DIRECT)
++        p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.client)
++        p.setTimeStep(self.time_step, physicsClientId=self.client)
++        p.setGravity(0, 0, -9.81, physicsClientId=self.client)
++
++        self.plane_id = None
++        self.robot_id = None
++
++        # Only use the 4 sagittal-plane leg joints for the standing task
++        self.target_joint_names = [
++            "right_hip_y",
++            "right_knee",
++            "left_hip_y",
++            "left_knee",
++        ]
++
++        self.joint_ids = []
++        self.joint_name_to_id = {}
++        self.foot_link_ids = []
++
++        # Nominal slightly bent standing pose
++        self.nominal_pose = {
++            "right_hip_y": -0.25,
++            "right_knee": -0.75,
++            "left_hip_y": -0.25,
++            "left_knee": -0.75,
++        }
++
++        # Small action ranges around nominal pose
++        self.action_scales = {
++            "right_hip_y": 0.20,
++            "right_knee": 0.25,
++            "left_hip_y": 0.20,
++            "left_knee": 0.25,
++        }
++
++        self._build_world()
++
++        self.num_actuated_joints = len(self.joint_ids)
++
++        self.action_space = spaces.Box(
++            low=-1.0,
++            high=1.0,
++            shape=(self.num_actuated_joints,),
++            dtype=np.float32,
++        )
++
++        obs = self._get_obs()
++        self.observation_space = spaces.Box(
++            low=-np.inf,
++            high=np.inf,
++            shape=obs.shape,
++            dtype=np.float32,
++        )
++
++        self.step_count = 0
++
++        # Measured standing reference height after reset pose
++        self.target_base_height = 1.05
++        # Curriculum learning parameters
++        self.alpha = 0.0  # 0.0 = purely standing, 1.0 = purely walking
++        self.w_f = 2.0    # Reward weight for forward motion # lower to 1.0 or 0.5 
++        self.w_y = 0.5    # Penalty weight for sideways drift
++
++    def set_alpha(self, alpha_val):
++        self.alpha = float(np.clip(alpha_val, 0.0, 1.0))
++
++    def _build_world(self):
++        p.resetSimulation(physicsClientId=self.client)
++        p.setGravity(0, 0, -9.81, physicsClientId=self.client)
++        p.setTimeStep(self.time_step, physicsClientId=self.client)
++
++        self.plane_id = p.loadURDF("plane.urdf", physicsClientId=self.client)
++
++        # Load Bullet's built-in humanoid MJCF
++        objects = p.loadMJCF("mjcf/humanoid_symmetric.xml", physicsClientId=self.client)
++        self.robot_id = objects[0]
++
++        self.joint_ids = []
++        self.joint_name_to_id = {}
++        self.foot_link_ids = []
++
++        # Gather joints
++        for j in range(p.getNumJoints(self.robot_id, physicsClientId=self.client)):
++            info = p.getJointInfo(self.robot_id, j, physicsClientId=self.client)
++            joint_name = info[1].decode("utf-8")
++            link_name = info[12].decode("utf-8")
++
++            if joint_name in self.target_joint_names:
++                self.joint_name_to_id[joint_name] = j
++                self.joint_ids.append(j)
++
++            if "foot" in link_name.lower():
++                self.foot_link_ids.append(j)
++
++        # Keep deterministic ordering matching action layout
++        self.joint_ids = [self.joint_name_to_id[name] for name in self.target_joint_names]
++
++        # Disable default motors on controlled joints
++        for j in self.joint_ids:
++            p.setJointMotorControl2(
++                bodyUniqueId=self.robot_id,
++                jointIndex=j,
++                controlMode=p.VELOCITY_CONTROL,
++                targetVelocity=0.0,
++                force=0.0,
++                physicsClientId=self.client,
++            )
++
++    def _get_joint_states(self):
++        states = p.getJointStates(self.robot_id, self.joint_ids, physicsClientId=self.client)
++        q = np.array([s[0] for s in states], dtype=np.float32)
++        qd = np.array([s[1] for s in states], dtype=np.float32)
++        return q, qd
++
++    def _get_foot_contacts(self):
++        contacts = []
++        for link_id in self.foot_link_ids:
++            pts = p.getContactPoints(
++                bodyA=self.robot_id,
++                bodyB=self.plane_id,
++                linkIndexA=link_id,
++                physicsClientId=self.client,
++            )
++            contacts.append(1.0 if len(pts) > 0 else 0.0)
++
++        if len(contacts) == 0:
++            contacts = [0.0, 0.0]
++
++        return np.array(contacts, dtype=np.float32)
++
++    def _get_obs(self):
++        base_pos, base_orn = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)
++        base_lin_vel, base_ang_vel = p.getBaseVelocity(self.robot_id, physicsClientId=self.client)
++        roll, pitch, yaw = p.getEulerFromQuaternion(base_orn)
++
++        q, qd = self._get_joint_states()
++        foot_contacts = self._get_foot_contacts()
++
++        # Simpler observation for standing task
++        obs = np.concatenate([
++            np.array([base_pos[2]], dtype=np.float32),          # base height
++            np.array([roll, pitch, yaw], dtype=np.float32),     # orientation
++            np.array(base_lin_vel, dtype=np.float32),           # linear velocity
++            np.array(base_ang_vel, dtype=np.float32),           # angular velocity
++            q,                                                  # joint positions
++            qd,                                                 # joint velocities
++            foot_contacts,                                      # foot contacts
++        ]).astype(np.float32)
++
++        return obs
++
++    def _apply_action(self, action):
++        action = np.clip(action, -1.0, 1.0)
++
++        # Action is offset around nominal standing pose
++        for idx, joint_name in enumerate(self.target_joint_names):
++            jid = self.joint_ids[idx]
++            target = self.nominal_pose[joint_name] + self.action_scales[joint_name] * float(action[idx])
++
++            p.setJointMotorControl2(
++                bodyUniqueId=self.robot_id,
++                jointIndex=jid,
++                controlMode=p.POSITION_CONTROL,
++                targetPosition=target,
++                force=300.0,
++                positionGain=0.5,
++                velocityGain=0.3,
++                physicsClientId=self.client,
++            )
++
++    def _compute_reward(self, action):
++        base_pos, base_orn = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)
++        base_lin_vel, base_ang_vel = p.getBaseVelocity(self.robot_id, physicsClientId=self.client)
++        roll, pitch, yaw = p.getEulerFromQuaternion(base_orn)
++        q, qd = self._get_joint_states()
++        contacts = self._get_foot_contacts()
++
++        height = base_pos[2]
++        v_x, v_y = base_lin_vel[0], base_lin_vel[1] 
++
++        # Shared base components
++        alive_bonus = 1.0 
++        contact_bonus = 0.05 * np.sum(contacts)
++        height_penalty = 2.0 * max(0.0, self.target_base_height - height)
++        tilt_penalty = 0.75 * (abs(roll) + abs(pitch)) # tilt_penalty = 2.0 * (abs(roll) + abs(pitch))
++        action_penalty = 0.001 * np.sum(np.square(action))
++        joint_vel_penalty = 0.0005 * np.sum(np.square(qd))
++
++        # Standing specific: penalize all horizontal drift
++        drift_penalty = 0.05 * abs(v_x) + 0.05 * abs(v_y)
++
++        # Walking specific: reward forward velocity, penalize lateral drift
++        forward_reward = self.w_f * v_x # forward_reward = self.w_f * min(v_x, 1.0)
++        lateral_penalty = self.w_y * abs(v_y)
++
++        # Calculate individual rewards
++        r_stand = (alive_bonus + contact_bonus - height_penalty - tilt_penalty 
++                   - action_penalty - joint_vel_penalty - drift_penalty)
++                   
++        r_walk = (alive_bonus + forward_reward + contact_bonus - height_penalty - tilt_penalty 
++                  - action_penalty - joint_vel_penalty - lateral_penalty)
++
++        # Apply Curriculum blend: R_total = (1 - alpha)*R_stand + alpha*R_walk
++        reward = (1.0 - self.alpha) * r_stand + self.alpha * r_walk
++
++        info = {
++            "alpha": self.alpha,
++            "r_stand": float(r_stand),
++            "r_walk": float(r_walk),
++            "forward_vel": float(v_x)
++        }
++
++        return float(reward), info
++
++    def _is_fallen(self):
++        base_pos, base_orn = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)
++        roll, pitch, _ = p.getEulerFromQuaternion(base_orn)
++
++        # Terminate if clearly collapsed
++        if base_pos[2] < 0.55:
++            return True
++        if abs(roll) > 1.0 or abs(pitch) > 1.0:
++            return True
++        return False
++
++    def reset(self, seed=None, options=None):
++        super().reset(seed=seed)
++
++        self._build_world()
++
++        # Small randomization around nominal standing pose
++        base_x = self.np_random.uniform(-0.01, 0.01)
++        base_y = self.np_random.uniform(-0.01, 0.01)
++        base_yaw = self.np_random.uniform(-0.03, 0.03)
++
++        p.resetBasePositionAndOrientation(
++            self.robot_id,
++            [base_x, base_y, 1.12],
++            p.getQuaternionFromEuler([0.0, 0.0, base_yaw]),
++            physicsClientId=self.client,
++        )
++
++        # Initialize controlled joints near nominal standing pose
++        for joint_name in self.target_joint_names:
++            jid = self.joint_name_to_id[joint_name]
++            init_q = self.nominal_pose[joint_name] + self.np_random.uniform(-0.03, 0.03)
++            init_qd = self.np_random.uniform(-0.02, 0.02)
++
++            p.resetJointState(
++                bodyUniqueId=self.robot_id,
++                jointIndex=jid,
++                targetValue=init_q,
++                targetVelocity=init_qd,
++                physicsClientId=self.client,
++            )
++
++        # Let the robot settle briefly under the position targets
++        zero_action = np.zeros(self.num_actuated_joints, dtype=np.float32)
++        for _ in range(20):
++            self._apply_action(zero_action)
++            p.stepSimulation(physicsClientId=self.client)
++            if self.render_mode == "human":
++                time.sleep(self.time_step)
++
++        self.step_count = 0
++        obs = self._get_obs()
++        info = {}
++        return obs, info
++
++    def step(self, action):
++        self._apply_action(action)
++
++        for _ in range(self.frame_skip):
++            p.stepSimulation(physicsClientId=self.client)
++            if self.render_mode == "human":
++                time.sleep(self.time_step)
++
++        self.step_count += 1
++
++        obs = self._get_obs()
++        reward, reward_info = self._compute_reward(action)
++
++        terminated = self._is_fallen()
++        truncated = self.step_count >= self.max_episode_steps
++
++        return obs, reward, terminated, truncated, reward_info
++
++    def render(self):
++        pass
++
++    def close(self):
++        if self.client is not None and p.isConnected(self.client):
++            p.disconnect(self.client)
++            self.client = None
+\ No newline at end of file
+Index: models_td3_walk/evaluate.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/models_td3_walk/evaluate.py b/models_td3_walk/evaluate.py
+new file mode 100644
+--- /dev/null	(date 1775625524025)
++++ b/models_td3_walk/evaluate.py	(date 1775625524025)
+@@ -0,0 +1,38 @@
++import pybullet as p
++import time
++from stable_baselines3 import TD3
++from biped_env import BipedalStandBulletEnv
++
++if __name__ == "__main__":
++    print("Starting simulation window...")
++    # 1. Create the environment WITH rendering turned ON
++    env = BipedalStandBulletEnv(render=True)
++    
++    # Force the environment to use the full walking reward/behavior
++    env.alpha = 1.0 
++
++    print("Loading the trained model...")
++    # 2. Load your finished model 
++    # (Change this to "best_model.zip" if you want to test the standing one!)
++    model = TD3.load("best_walking_model.zip", env=env)
++    #model = TD3.load("best_model.zip", env=env)
++
++    # 3. Run a test episode
++    obs, info = env.reset()
++    print("Running episode. Watch the PyBullet window!")
++    
++    for i in range(1000):
++        # deterministic=True ensures the robot takes its "best" action, not a random exploratory one
++        action, _states = model.predict(obs, deterministic=True)
++        obs, reward, terminated, truncated, info = env.step(action)
++        
++        # The environment automatically sleeps to match 240fps, 
++        # so it will play out in real-time on your screen.
++
++        if terminated or truncated:
++            print(f"Episode finished after {i} steps!")
++            break
++
++    # Leave the window open for a couple of seconds before closing
++    time.sleep(2)
++    env.close()
+\ No newline at end of file
