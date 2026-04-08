@@ -15,6 +15,8 @@ class BipedalStandBulletEnv(gym.Env):
         time_step=1.0 / 240.0,
         frame_skip=4,
         max_episode_steps=1000,
+        *args,
+        **kwargs
     ):
         super().__init__()
 
@@ -322,3 +324,85 @@ class BipedalStandBulletEnv(gym.Env):
         if self.client is not None and p.isConnected(self.client):
             p.disconnect(self.client)
             self.client = None
+
+class BipedalWalkBulletEnv(BipedalStandBulletEnv):
+
+    def __init__(self, *args, curriculum_steps=500_000, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.curriculum_steps = curriculum_steps
+        self.global_step_count = 0  # IMPORTANT for curriculum
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = super().step(action)
+        self.global_step_count += 1
+        return obs, reward, terminated, truncated, info
+
+    def _compute_reward(self, action):
+        base_pos, base_orn = p.getBasePositionAndOrientation(
+            self.robot_id, physicsClientId=self.client
+        )
+        base_lin_vel, _ = p.getBaseVelocity(
+            self.robot_id, physicsClientId=self.client
+        )
+        roll, pitch, yaw = p.getEulerFromQuaternion(base_orn)
+        q, qd = self._get_joint_states()
+        contacts = self._get_foot_contacts()
+
+        height = base_pos[2]
+        vx = base_lin_vel[0]
+        vy = base_lin_vel[1]
+
+        # Shared stability terms
+        alive_bonus = 1.0
+        height_penalty = 2.0 * max(0.0, self.target_base_height - height)
+        tilt_penalty = 0.75 * (abs(roll) + abs(pitch))
+        action_penalty = 0.001 * np.sum(np.square(action))
+        joint_vel_penalty = 0.0005 * np.sum(np.square(qd))
+        contact_bonus = 0.05 * np.sum(contacts)
+
+        # Standing reward
+        stand_drift_penalty = 0.05 * abs(vx) + 0.05 * abs(vy)
+
+        r_stand = (
+            alive_bonus
+            + contact_bonus
+            - height_penalty
+            - tilt_penalty
+            - action_penalty
+            - joint_vel_penalty
+            - stand_drift_penalty
+        )
+
+        # Walking reward
+        w_f = 1.0
+        w_y = 0.1
+
+        forward_reward = w_f * max(0.0, vx)
+        lateral_penalty = w_y * abs(vy)
+
+        r_walk = (
+            alive_bonus
+            + forward_reward
+            + contact_bonus
+            - height_penalty
+            - tilt_penalty
+            - action_penalty
+            - joint_vel_penalty
+            - lateral_penalty
+        )
+
+        # Curriculum
+        alpha = min(1.0, self.global_step_count / self.curriculum_steps)
+
+        reward = (1.0 - alpha) * r_stand + alpha * r_walk
+
+        info = {
+            "vx": float(vx),
+            "vy": float(vy),
+            "alpha": float(alpha),
+            "r_stand": float(r_stand),
+            "r_walk": float(r_walk),
+        }
+
+        return float(reward), info
