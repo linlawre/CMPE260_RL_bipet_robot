@@ -14,7 +14,9 @@ from biped_env import BipedalWalkBulletEnv
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(BASE_DIR, "logs_sac_walk")
 MODEL_DIR = os.path.join(BASE_DIR, "models_sac_walk")
-STAND_MODEL_PATH = os.path.join(BASE_DIR, "models_sac_stand", "sac_stand_final.zip")
+
+# STAND_MODEL_PATH = os.path.join(BASE_DIR, "models_sac_stand", "sac_stand_final.zip")
+STAND_MODEL_PATH = os.path.join(BASE_DIR, "models_sac_stand", "best_model.zip")
 
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
