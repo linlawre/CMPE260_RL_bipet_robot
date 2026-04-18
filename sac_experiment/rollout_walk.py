@@ -9,7 +9,9 @@ from biped_env import BipedalWalkBulletEnv
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_MODEL_PATH = os.path.join(BASE_DIR, "models_sac_walk", "sac_walk_final.zip")
+
+DEFAULT_MODEL_PATH = os.path.join(BASE_DIR, "models_sac_walk", "sac_stand_final.zip")
+# DEFAULT_MODEL_PATH = os.path.join(BASE_DIR, "models_sac_walk", "best_model.zip")
 
 TIME_STEP = 1.0 / 240.0
 FRAME_SKIP = 4

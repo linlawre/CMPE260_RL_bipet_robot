@@ -33,33 +33,11 @@ class BipedalStandBulletEnv(gym.Env):
         self.plane_id = None
         self.robot_id = None
 
-        # Only use the 4 sagittal-plane leg joints for the standing task
-        self.target_joint_names = [
-            "right_hip_y",
-            "right_knee",
-            "left_hip_y",
-            "left_knee",
-        ]
+        self.target_joint_names, self.nominal_pose, self.action_scales = self._build_joints()
 
         self.joint_ids = []
         self.joint_name_to_id = {}
         self.foot_link_ids = []
-
-        # Nominal slightly bent standing pose
-        self.nominal_pose = {
-            "right_hip_y": -0.25,
-            "right_knee": -0.75,
-            "left_hip_y": -0.25,
-            "left_knee": -0.75,
-        }
-
-        # Small action ranges around nominal pose
-        self.action_scales = {
-            "right_hip_y": 0.20,
-            "right_knee": 0.25,
-            "left_hip_y": 0.20,
-            "left_knee": 0.25,
-        }
 
         self._build_world()
 
@@ -84,6 +62,31 @@ class BipedalStandBulletEnv(gym.Env):
 
         # Measured standing reference height after reset pose
         self.target_base_height = 1.05
+    
+    def _build_joints(self):
+        # Only use the 4 sagittal-plane leg joints for the standing task
+        target_joint_names = [
+            "right_hip_y",
+            "right_knee",
+            "left_hip_y",
+            "left_knee",
+        ]
+        # Nominal slightly bent standing pose
+        nominal_pose = {
+            "right_hip_y": -0.25,
+            "right_knee": -0.75,
+            "left_hip_y": -0.25,
+            "left_knee": -0.75,
+        }
+
+        # Small action ranges around nominal pose
+        action_scales = {
+            "right_hip_y": 0.20,
+            "right_knee": 0.25,
+            "left_hip_y": 0.20,
+            "left_knee": 0.25,
+        }
+        return target_joint_names, nominal_pose, action_scales
 
     def _build_world(self):
         p.resetSimulation(physicsClientId=self.client)
@@ -189,60 +192,95 @@ class BipedalStandBulletEnv(gym.Env):
                 physicsClientId=self.client,
             )
 
-    def _compute_reward(self, action):
-        base_pos, base_orn = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)
-        base_lin_vel, base_ang_vel = p.getBaseVelocity(self.robot_id, physicsClientId=self.client)
+    def _get_reward_state(self):
+        base_pos, base_orn = p.getBasePositionAndOrientation(
+            self.robot_id, physicsClientId=self.client
+        )
+        base_lin_vel, base_ang_vel = p.getBaseVelocity(
+            self.robot_id, physicsClientId=self.client
+        )
         roll, pitch, yaw = p.getEulerFromQuaternion(base_orn)
         q, qd = self._get_joint_states()
         contacts = self._get_foot_contacts()
 
-        height = base_pos[2]
+        return {
+            "base_pos": base_pos,
+            "base_orn": base_orn,
+            "base_lin_vel": base_lin_vel,
+            "base_ang_vel": base_ang_vel,
+            "roll": roll,
+            "pitch": pitch,
+            "yaw": yaw,
+            "q": q,
+            "qd": qd,
+            "contacts": contacts,
+            "height": base_pos[2],
+            "vx": base_lin_vel[0],
+            "vy": base_lin_vel[1],
+        }
 
-        # Standing reward: survive, stay upright, avoid thrashing
+    def _compute_stand_reward_terms(self, state, action):
+        height = state["height"]
+        roll = state["roll"]
+        pitch = state["pitch"]
+        qd = state["qd"]
+        contacts = state["contacts"]
+        vx = state["vx"]
+        vy = state["vy"]
+
         alive_bonus = 1.0
-
-        # Penalize being below desired standing height
         height_penalty = 2.0 * max(0.0, self.target_base_height - height)
-
-        # Penalize torso tilt
         tilt_penalty = 0.75 * (abs(roll) + abs(pitch))
+        # action_penalty = 0.001 * np.sum(np.square(action))
 
-        # Small action penalty
-        action_penalty = 0.001 * np.sum(np.square(action))
+        # adjust it as the arms have been added to give agent more freeddom to use them
+        action_penalty = 0.0005 * np.sum(np.square(action))
+        # action_penalty = 0.0006 * np.sum(np.square(action))
 
-        # Penalize excessive joint velocity
         joint_vel_penalty = 0.0005 * np.sum(np.square(qd))
-
-        # Mild bonus when feet are in contact with the floor
         contact_bonus = 0.05 * np.sum(contacts)
+        drift_penalty = 0.05 * abs(vx) + 0.05 * abs(vy)
 
-        # Small penalty for horizontal drift during standing
-        drift_penalty = 0.05 * abs(base_lin_vel[0]) + 0.05 * abs(base_lin_vel[1])
-
-        reward = (
-            alive_bonus
-            + contact_bonus
-            - height_penalty
-            - tilt_penalty
-            - action_penalty
-            - joint_vel_penalty
-            - drift_penalty
-        )
-
-        info = {
-            "height": float(height),
-            "roll": float(roll),
-            "pitch": float(pitch),
-            "yaw": float(yaw),
-            "contact_sum": float(np.sum(contacts)),
+        terms = {
+            "alive_bonus": float(alive_bonus),
             "height_penalty": float(height_penalty),
             "tilt_penalty": float(tilt_penalty),
             "action_penalty": float(action_penalty),
             "joint_vel_penalty": float(joint_vel_penalty),
+            "contact_bonus": float(contact_bonus),
             "drift_penalty": float(drift_penalty),
         }
+        return terms
+    
+    def _sum_stand_reward_terms(self, terms):
+        reward = (
+            terms["alive_bonus"]
+            + terms["contact_bonus"]
+            - terms["height_penalty"]
+            - terms["tilt_penalty"]
+            - terms["action_penalty"]
+            - terms["joint_vel_penalty"]
+            - terms["drift_penalty"]
+        )
+        return float(reward)
 
-        return float(reward), info
+    def _compute_reward(self, action):
+        state = self._get_reward_state()
+        terms = self._compute_stand_reward_terms(state, action)
+        reward = self._sum_stand_reward_terms(terms)
+
+        info = {
+            "height": float(state["height"]),
+            "roll": float(state["roll"]),
+            "pitch": float(state["pitch"]),
+            "yaw": float(state["yaw"]),
+            "vx": float(state["vx"]),
+            "vy": float(state["vy"]),
+            "contact_sum": float(np.sum(state["contacts"])),
+            **terms,
+            "reward_total": float(reward),
+        }
+        return reward, info
 
     def _is_fallen(self):
         base_pos, base_orn = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)
@@ -339,40 +377,15 @@ class BipedalWalkBulletEnv(BipedalStandBulletEnv):
         return obs, reward, terminated, truncated, info
 
     def _compute_reward(self, action):
-        base_pos, base_orn = p.getBasePositionAndOrientation(
-            self.robot_id, physicsClientId=self.client
-        )
-        base_lin_vel, _ = p.getBaseVelocity(
-            self.robot_id, physicsClientId=self.client
-        )
-        roll, pitch, yaw = p.getEulerFromQuaternion(base_orn)
-        q, qd = self._get_joint_states()
-        contacts = self._get_foot_contacts()
+        state = self._get_reward_state()
+        terms = self._compute_stand_reward_terms(state, action)
 
-        height = base_pos[2]
-        vx = base_lin_vel[0]
-        vy = base_lin_vel[1]
+        # Standing reward from parent logic
+        r_stand = self._sum_stand_reward_terms(terms)
 
-        # Shared stability terms
-        alive_bonus = 1.0
-        height_penalty = 2.0 * max(0.0, self.target_base_height - height)
-        tilt_penalty = 0.75 * (abs(roll) + abs(pitch))
-        action_penalty = 0.001 * np.sum(np.square(action))
-        joint_vel_penalty = 0.0005 * np.sum(np.square(qd))
-        contact_bonus = 0.05 * np.sum(contacts)
-
-        # Standing reward
-        stand_drift_penalty = 0.05 * abs(vx) + 0.05 * abs(vy)
-
-        r_stand = (
-            alive_bonus
-            + contact_bonus
-            - height_penalty
-            - tilt_penalty
-            - action_penalty
-            - joint_vel_penalty
-            - stand_drift_penalty
-        )
+        # Walking modifications
+        vx = state["vx"]
+        vy = state["vy"]
 
         # Walking reward
         w_f = 1.0
@@ -381,28 +394,152 @@ class BipedalWalkBulletEnv(BipedalStandBulletEnv):
         forward_reward = w_f * max(0.0, vx)
         lateral_penalty = w_y * abs(vy)
 
+        # Build walking reward by reusing parent terms but replacing drift logic
         r_walk = (
-            alive_bonus
+            terms["alive_bonus"]
+            + terms["contact_bonus"]
             + forward_reward
-            + contact_bonus
-            - height_penalty
-            - tilt_penalty
-            - action_penalty
-            - joint_vel_penalty
+            - terms["height_penalty"]
+            - terms["tilt_penalty"]
+            - terms["action_penalty"]
+            - terms["joint_vel_penalty"]
+            - lateral_penalty
+        )
+
+        alpha = min(1.0, self.global_step_count / self.curriculum_steps)
+        reward = (1.0 - alpha) * r_stand + alpha * r_walk
+
+        info = {
+            "height": float(state["height"]),
+            "roll": float(state["roll"]),
+            "pitch": float(state["pitch"]),
+            "yaw": float(state["yaw"]),
+            "vx": float(vx),
+            "vy": float(vy),
+            "contact_sum": float(np.sum(state["contacts"])),
+            **terms,
+            "forward_reward": float(forward_reward),
+            "lateral_penalty": float(lateral_penalty),
+            "r_stand": float(r_stand),
+            "r_walk": float(r_walk),
+            "alpha": float(alpha),
+            "reward_total": float(reward),
+        }
+        return float(reward), info
+
+class BipedalStandArmsBulletEnv(BipedalStandBulletEnv):
+    def __init__(self, render=False, time_step=1 / 240, frame_skip=4, max_episode_steps=1000, *args, **kwargs):
+        super().__init__(render, time_step, frame_skip, max_episode_steps, *args, **kwargs)
+    
+    def _build_joints(self):
+        target_joint_names, nominal_pose, action_scales = super()._build_joints()
+
+        # avoid mutating the parent-returned objects in place
+        target_joint_names = list(target_joint_names)
+        nominal_pose = dict(nominal_pose)
+        action_scales = dict(action_scales)
+        
+        target_joint_names += [
+            "right_shoulder1",
+            "left_shoulder1",
+
+            "right_shoulder2",
+            "left_shoulder2",
+            ]
+        
+
+        nominal_pose |= {
+            "right_shoulder1": 0.10,
+            "left_shoulder1": -0.10,
+
+            "right_shoulder2": 0.0,
+            "left_shoulder2": 0.0,
+        }
+        action_scales |= {
+            "right_shoulder1": 0.10,
+            "left_shoulder1": 0.10,
+
+            "right_shoulder2": 0.05,
+            "left_shoulder2": 0.05,
+        }
+        return target_joint_names, nominal_pose, action_scales
+
+class BipedalWalkArmsBulletEnv(BipedalStandArmsBulletEnv):
+    def __init__(
+        self,
+        render=False,
+        time_step=1.0 / 240.0,
+        frame_skip=4,
+        max_episode_steps=1000,
+        curriculum_steps=1_000_000,
+        forward_reward_weight=0.5,
+        lateral_penalty_weight=0.10,
+    ):
+        self.curriculum_steps = curriculum_steps
+        self.forward_reward_weight = forward_reward_weight
+        self.lateral_penalty_weight = lateral_penalty_weight
+
+        self.global_step_count = 0
+
+        super().__init__(
+            render=render,
+            time_step=time_step,
+            frame_skip=frame_skip,
+            max_episode_steps=max_episode_steps,
+        )
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = super().step(action)
+        self.global_step_count += 1
+        return obs, reward, terminated, truncated, info
+
+    def _compute_reward(self, action):
+        """
+        If want different standing terms rewards override: _compute_stand_reward_terms
+        """
+        state = self._get_reward_state()
+        terms = self._compute_stand_reward_terms(state, action)
+
+        # Standing reward from parent logic
+        r_stand = self._sum_stand_reward_terms(terms)
+
+        # Walking modifications
+        vx = state["vx"]
+        vy = state["vy"]
+
+        forward_reward = self.forward_reward_weight * max(0.0, vx)
+        lateral_penalty = self.lateral_penalty_weight * abs(vy)
+
+        # Build walking reward by reusing parent terms but replacing drift logic
+        r_walk = (
+            terms["alive_bonus"]
+            + terms["contact_bonus"]
+            + forward_reward
+            - terms["height_penalty"]
+            - terms["tilt_penalty"]
+            - terms["action_penalty"]
+            - terms["joint_vel_penalty"]
             - lateral_penalty
         )
 
         # Curriculum
         alpha = min(1.0, self.global_step_count / self.curriculum_steps)
-
         reward = (1.0 - alpha) * r_stand + alpha * r_walk
 
         info = {
+            "height": float(state["height"]),
+            "roll": float(state["roll"]),
+            "pitch": float(state["pitch"]),
+            "yaw": float(state["yaw"]),
             "vx": float(vx),
             "vy": float(vy),
-            "alpha": float(alpha),
+            "contact_sum": float(np.sum(state["contacts"])),
+            **terms,
+            "forward_reward": float(forward_reward),
+            "lateral_penalty": float(lateral_penalty),
             "r_stand": float(r_stand),
             "r_walk": float(r_walk),
+            "alpha": float(alpha),
+            "reward_total": float(reward),
         }
-
         return float(reward), info
