@@ -20,7 +20,7 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 TIME_STEP = 1.0 / 240.0
 FRAME_SKIP = 4
 # MAX_EPISODE_STEPS = 1000
-MAX_EPISODE_STEPS = 1000
+MAX_EPISODE_STEPS = 2000
 RENDER = False
 SEED = 101
 
@@ -103,3 +103,7 @@ if __name__ == "__main__":
 
     train_env.close()
     eval_env.close()
+
+# Runs the first script
+# Only if it succeeds (exit code 0): runs the second
+# python train_sac_stand_arms.py && python train_sac_walk_arms.py

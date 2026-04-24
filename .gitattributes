@@ -1,0 +1,19 @@
+# Disable automatic text detection globally
+# Prevent Git from auto-detecting text files (avoids corrupting binaries)
+# Only files explicitly listed below will be treated as text
+* -text
+
+# Enforce LF line endings for source/text files (Docker/Linux consistency)
+# These are safe to normalize and should be consistent across systems
+*.py text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.txt text eol=lf
+*.xml text eol=lf
+
+# Note:
+# - Fixes CRLF vs LF issues across Windows/Linux
+# - Prevents "fake" diffs in Git

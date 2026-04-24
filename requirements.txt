@@ -1,0 +1,11 @@
+pandas
+numpy
+# numpy==1.26.4
+pybullet
+gymnasium
+stable-baselines3
+tensorboard
+matplotlib
+seaborn
+tqdm
+rich

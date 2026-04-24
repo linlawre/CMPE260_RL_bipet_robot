@@ -23,7 +23,7 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 
 TIME_STEP = 1.0 / 240.0
 FRAME_SKIP = 4
-MAX_EPISODE_STEPS = 1000
+MAX_EPISODE_STEPS = 2000
 RENDER = False
 SEED = 101
 
@@ -33,7 +33,7 @@ FORWARD_REWARD_WEIGHT = 1.0
 LATERAL_PENALTY_WEIGHT = 0.10
 
 # Training settings
-TOTAL_TIMESTEPS = 500_000
+TOTAL_TIMESTEPS = 1_000_000
 # TOTAL_TIMESTEPS = 1_000
 DEVICE = "cuda"   # change to "cpu" if needed
 
@@ -111,20 +111,21 @@ if __name__ == "__main__":
         eval_env,
         best_model_save_path=MODEL_DIR,
         log_path=LOG_DIR,
-        eval_freq=25_000,
+        eval_freq=10_000,
         deterministic=True,
         render=False,
     )
 
-    checkpoint_callback = CheckpointCallback(
-        save_freq=50_000,
-        save_path=MODEL_DIR,
-        name_prefix="sac_walk_ckpt",
-    )
+    # checkpoint_callback = CheckpointCallback(
+    #     save_freq=50_000,
+    #     save_path=MODEL_DIR,
+    #     name_prefix="sac_walk_ckpt",
+    # )
 
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
-        callback=[eval_callback, checkpoint_callback],
+        # callback=[eval_callback, checkpoint_callback],
+        callback=[eval_callback],
         log_interval=10,
         progress_bar=True,
         reset_num_timesteps=False,   # important when continuing from stand model
