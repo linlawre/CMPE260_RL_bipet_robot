@@ -365,29 +365,11 @@ class BipedalStandBulletEnv(gym.Env):
 
 class BipedalWalkBulletEnv(BipedalStandBulletEnv):
 
-    def __init__(
-        self,
-        *args,
-        curriculum_steps=500_000,
-        target_speed=0.6,
-        forward_reward_weight=1.0,
-        target_speed_weight=0.75,
-        backward_penalty_weight=2.0,
-        lateral_penalty_weight=0.1,
-        max_backward_penalty=1.0,
-        **kwargs
-    ):
+    def __init__(self, *args, curriculum_steps=500_000, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.curriculum_steps = curriculum_steps
-        self.global_step_count = 0
-
-        self.target_speed = target_speed
-        self.forward_reward_weight = forward_reward_weight
-        self.target_speed_weight = target_speed_weight
-        self.backward_penalty_weight = backward_penalty_weight
-        self.lateral_penalty_weight = lateral_penalty_weight
-        self.max_backward_penalty = max_backward_penalty
+        self.global_step_count = 0  # IMPORTANT for curriculum
 
     def step(self, action):
         obs, reward, terminated, truncated, info = super().step(action)
@@ -398,39 +380,30 @@ class BipedalWalkBulletEnv(BipedalStandBulletEnv):
         state = self._get_reward_state()
         terms = self._compute_stand_reward_terms(state, action)
 
+        # Standing reward from parent logic
         r_stand = self._sum_stand_reward_terms(terms)
 
+        # Walking modifications
         vx = state["vx"]
         vy = state["vy"]
 
-        # 1. Reward positive forward motion only
-        forward_reward = self.forward_reward_weight * max(0.0, vx)
+        # Walking reward
+        w_f = 1.0
+        w_y = 0.1
 
-        # 2. Penalize backward motion, but clip so it does not explode
-        backward_penalty = self.backward_penalty_weight * max(0.0, -vx)
-        backward_penalty = min(backward_penalty, self.max_backward_penalty)
+        forward_reward = w_f * max(0.0, vx)
+        lateral_penalty = w_y * abs(vy)
 
-        # 3. Target-speed reward: highest when vx is close to target_speed
-        speed_error = abs(vx - self.target_speed)
-        target_speed_reward = self.target_speed_weight * max(
-            0.0,
-            1.0 - speed_error / self.target_speed
-        )
-
-        # 4. Penalize sideways drift
-        lateral_penalty = self.lateral_penalty_weight * abs(vy)
-
+        # Build walking reward by reusing parent terms but replacing drift logic
         r_walk = (
             terms["alive_bonus"]
             + terms["contact_bonus"]
             + forward_reward
-            + target_speed_reward
             - terms["height_penalty"]
             - terms["tilt_penalty"]
             - terms["action_penalty"]
             - terms["joint_vel_penalty"]
             - lateral_penalty
-            - backward_penalty
         )
 
         alpha = min(1.0, self.global_step_count / self.curriculum_steps)
@@ -446,16 +419,12 @@ class BipedalWalkBulletEnv(BipedalStandBulletEnv):
             "contact_sum": float(np.sum(state["contacts"])),
             **terms,
             "forward_reward": float(forward_reward),
-            "backward_penalty": float(backward_penalty),
-            "target_speed_reward": float(target_speed_reward),
-            "speed_error": float(speed_error),
             "lateral_penalty": float(lateral_penalty),
             "r_stand": float(r_stand),
             "r_walk": float(r_walk),
             "alpha": float(alpha),
             "reward_total": float(reward),
         }
-
         return float(reward), info
 
 class BipedalStandArmsBulletEnv(BipedalStandBulletEnv):
