@@ -6,7 +6,7 @@ import torch
 from stable_baselines3 import SAC
 
 from biped_env import BipedalWalkBulletEnv
-
+import pybullet as p
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -22,6 +22,26 @@ CURRICULUM_STEPS = 500_000
 FORWARD_REWARD_WEIGHT = 1.0
 LATERAL_PENALTY_WEIGHT = 0.10
 
+DISTANCE = 3.6
+YAW = 30
+PITCH = -20
+Z_OFFSET = 0.4
+
+def update_follow_camera(env, distance=3.0, yaw=50, pitch=-20, z_offset=0.4):
+    robot_pos, _ = p.getBasePositionAndOrientation(env.robot_id)
+
+    target = [
+        robot_pos[0],
+        robot_pos[1],
+        robot_pos[2] + z_offset,
+    ]
+
+    p.resetDebugVisualizerCamera(
+        cameraDistance=distance,
+        cameraYaw=yaw,
+        cameraPitch=pitch,
+        cameraTargetPosition=target,
+    )
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Roll out a trained SAC walking policy.")
@@ -43,6 +63,7 @@ def parse_args():
         help="Stop after this many episodes. Use 0 for infinite rollout.",
     )
     return parser.parse_args()
+
 
 
 def main():
@@ -76,6 +97,14 @@ def main():
         while True:
             action, _ = model.predict(obs, deterministic=args.deterministic)
             obs, reward, terminated, truncated, info = env.step(action)
+
+            update_follow_camera(
+                env,
+                distance=DISTANCE,
+                yaw=YAW,
+                pitch=PITCH,
+                z_offset=Z_OFFSET,
+            )
 
             episode_reward += reward
             episode_steps += 1
